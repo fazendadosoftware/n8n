@@ -34,7 +34,6 @@
 				</el-col>
 			</el-row>
 		</div>
-
 		<el-row v-if="isOAuthType" class="oauth-information">
 			<el-col :span="6" class="headline">
 				OAuth
