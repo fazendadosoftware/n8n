@@ -236,7 +236,6 @@ export function requestOAuth2ClientCredentials(this: IAllExecuteFunctions, crede
 			const statusCodeReturned = oAuth2Options?.tokenExpiredStatusCode === undefined ? 401 : oAuth2Options?.tokenExpiredStatusCode;
 
 			if (error.statusCode === statusCodeReturned) {
-				console.log('REFRESHING TOKEN!!!!!', credentials);
 				// Token is probably not valid anymore. So try refresh it.
 				const tokenRequestOptions = {
 					method: 'POST',
@@ -269,16 +268,12 @@ export function requestOAuth2ClientCredentials(this: IAllExecuteFunctions, crede
 				await additionalData.credentialsHelper.updateCredentials(name, credentialsType, credentials);
 
 				// Make the request again with the new token
-				const newRequestOptions = {
-					...requestOptions,
-					headers: {
-						...requestOptions.headers,
-						'content-type': 'application/json',
-						authorization: `Bearer ${accessToken}`
-					}
+				requestOptions.headers = {
+					...requestOptions.headers,
+					'content-type': 'application/json',
+					authorization: `Bearer ${accessToken}`
 				};
-
-				return this.helpers.request!(newRequestOptions);
+				return this.helpers.request!(requestOptions);
 			}
 
 			// Unknown error so simply throw it
