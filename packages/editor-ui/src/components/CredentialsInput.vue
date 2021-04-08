@@ -64,7 +64,7 @@
 					</span>
 				</span>
 
-				<div v-if="credentialProperties.length">
+				<div v-if="credentialProperties.length && !isOauthClientCredentialsType">
 					<div class="clickable oauth-callback-headline" :class="{expanded: !isMinimized}" @click="isMinimized=!isMinimized" :title="isMinimized ? 'Click to display Webhook URLs' : 'Click to hide Webhook URLs'">
 						<font-awesome-icon icon="angle-up" class="minimize-button minimize-icon" />
 						OAuth Callback URL
@@ -233,12 +233,19 @@ export default mixins(
 			const types = this.parentTypes(this.credentialTypeData.name);
 			return types.includes('googleOAuth2Api');
 		},
-		isOAuthType (): boolean {
-			if (['oAuth1Api', 'oAuth2Api'].includes(this.credentialTypeData.name)) {
+		isOauthClientCredentialsType (): boolean {
+			if (this.credentialTypeData.name === 'oAuth2ClientCredentials') {
 				return true;
 			}
 			const types = this.parentTypes(this.credentialTypeData.name);
-			return types.includes('oAuth1Api') || types.includes('oAuth2Api');
+			return types.includes('oAuth2ClientCredentials');
+		},
+		isOAuthType (): boolean {
+			if (['oAuth1Api', 'oAuth2Api', 'oAuth2ClientCredentials'].includes(this.credentialTypeData.name)) {
+				return true;
+			}
+			const types = this.parentTypes(this.credentialTypeData.name);
+			return types.includes('oAuth1Api') || types.includes('oAuth2Api') || types.includes('oAuth2ClientCredentials');
 		},
 		isOAuthConnected (): boolean {
 			if (this.isOAuthType === false) {
@@ -342,7 +349,7 @@ export default mixins(
 
 			return result;
 		},
-		async oAuthCredentialAuthorize () {
+		async oAuthCredentialAuthorize () { 
 			let url;
 
 			let credentialData = this.credentialDataDynamic;
@@ -371,6 +378,45 @@ export default mixins(
 
 			const types = this.parentTypes(this.credentialTypeData.name);
 
+			const onCredentialsAuthorized = () => {
+				// Set some kind of data that status changes.
+				// As data does not get displayed directly it does not matter what data.
+				if (this.credentialData === null) {
+					// Are new credentials so did not get send via "credentialData"
+					Vue.set(this, 'credentialDataTemp', credentialData);
+					Vue.set(this.credentialDataTemp!.data!, 'oauthTokenData', {});
+				} else {
+					// Credentials did already exist so can be set directly
+					Vue.set(this.credentialData.data, 'oauthTokenData', {});
+				}
+
+				// Save that OAuth got authorized locally
+				this.$store.commit('updateCredentials', this.credentialDataDynamic);
+				this.$showMessage({
+					title: 'Connected',
+					message: 'Connected successfully!',
+					type: 'success',
+				});
+			};
+
+			const onCredentialsRejected = (error: Error) => {
+				this.$showError(error, 'OAuth Authorization Error', 'Error fetching OAuth2 token!');
+				Vue.set(this, 'credentialDataTemp', credentialData);
+				Vue.delete(this.credentialData.data, 'oauthTokenData');
+				this.$store.commit('updateCredentials', this.credentialDataDynamic);
+			};
+
+
+			if (this.credentialTypeData.name === 'oAuth2ClientCredentials' || types.includes('oAuth2ClientCredentials')) {
+				try {
+					await this.restApi().oAuth2ClientCredentialsGetToken(credentialData as ICredentialsResponse);
+					onCredentialsAuthorized();
+				} catch (error) {
+					onCredentialsRejected(error);
+				}
+				return;
+			}
+
 			try {
 				if (this.credentialTypeData.name === 'oAuth2Api' || types.includes('oAuth2Api')) {
 					url = await this.restApi().oAuth2CredentialAuthorize(credentialData as ICredentialsResponse) as string;
@@ -392,20 +438,7 @@ export default mixins(
 				// }
 
 				if (event.data === 'success') {
-
-					// Set some kind of data that status changes.
-					// As data does not get displayed directly it does not matter what data.
-					if (this.credentialData === null) {
-						// Are new credentials so did not get send via "credentialData"
-						Vue.set(this, 'credentialDataTemp', credentialData);
-						Vue.set(this.credentialDataTemp!.data!, 'oauthTokenData', {});
-					} else {
-						// Credentials did already exist so can be set directly
-						Vue.set(this.credentialData.data, 'oauthTokenData', {});
-					}
-
-					// Save that OAuth got authorized locally
-					this.$store.commit('updateCredentials', this.credentialDataDynamic);
+					onCredentialsAuthorized();
 
 					// Close the window
 					if (oauthPopup) {
@@ -415,12 +448,6 @@ export default mixins(
 					if (newCredentials === true) {
 						this.$emit('credentialsCreated', {data: credentialData, options: { closeDialog: false }});
 					}
-
-					this.$showMessage({
-						title: 'Connected',
-						message: 'Connected successfully!',
-						type: 'success',
-					});
 
 					// Make sure that the event gets removed again
 					window.removeEventListener('message', receiveMessage, false);
@@ -474,7 +501,6 @@ export default mixins(
 			// Now that the credentials changed check if any nodes use credentials
 			// which have now a different name
 			this.updateNodesCredentialsIssues();
-
 			this.$emit('credentialsUpdated', {data: result, options: { closeDialog }});
 
 			return result;

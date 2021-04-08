@@ -50,6 +50,7 @@ import * as requestPromise from 'request-promise-native';
 import { createHmac } from 'crypto';
 import { fromBuffer } from 'file-type';
 import { lookup } from 'mime-types';
+import * as _ from 'lodash';
 
 
 /**
@@ -135,7 +136,6 @@ export async function prepareBinaryData(binaryData: Buffer, filePath?: string, m
  */
 export function requestOAuth2(this: IAllExecuteFunctions, credentialsType: string, requestOptions: OptionsWithUri | requestPromise.RequestPromiseOptions, node: INode, additionalData: IWorkflowExecuteAdditionalData, oAuth2Options?: IOAuth2Options) {
 	const credentials = this.getCredentials(credentialsType) as ICredentialDataDecryptedObject;
-
 	if (credentials === undefined) {
 		throw new Error('No credentials got returned!');
 	}
@@ -199,6 +199,84 @@ export function requestOAuth2(this: IAllExecuteFunctions, credentialsType: strin
 
 				// Make the request again with the new token
 				const newRequestOptions = newToken.sign(requestOptions as clientOAuth2.RequestObject);
+
+				return this.helpers.request!(newRequestOptions);
+			}
+
+			// Unknown error so simply throw it
+			throw error;
+		});
+}
+
+export function requestOAuth2ClientCredentials(this: IAllExecuteFunctions, credentialsType: string, requestOptions: OptionsWithUri | requestPromise.RequestPromiseOptions, node: INode, additionalData: IWorkflowExecuteAdditionalData, oAuth2Options?: IOAuth2Options) {
+	const credentials = this.getCredentials(credentialsType) as ICredentialDataDecryptedObject;
+
+	if (credentials === undefined) {
+		throw new Error('No credentials got returned!');
+	}
+
+	const oauthTokenData = credentials.oauthTokenData as IDataObject;
+
+	if (oauthTokenData === undefined) {
+		throw new Error('OAuth credentials not connected!');
+	}
+
+	const accessToken = oauthTokenData.accessToken as string;
+	if (accessToken === undefined) {
+		throw new Error('OAuth credentials not connected!');
+	}
+	requestOptions.headers = {
+		...requestOptions.headers,
+		'content-type': 'application/json',
+		authorization: `Bearer ${accessToken}`
+	};
+	
+	return this.helpers.request!(requestOptions)
+		.catch(async (error: IResponseError) => {
+			const statusCodeReturned = oAuth2Options?.tokenExpiredStatusCode === undefined ? 401 : oAuth2Options?.tokenExpiredStatusCode;
+
+			if (error.statusCode === statusCodeReturned) {
+				console.log('REFRESHING TOKEN!!!!!', credentials);
+				// Token is probably not valid anymore. So try refresh it.
+				const tokenRequestOptions = {
+					method: 'POST',
+					uri: _.get(credentials, 'accessTokenUrl', '') as string,
+					headers: {
+						'cache-control': 'no-cache',
+						'content-type': 'application/json'
+					},
+					body: {
+						audience: _.get(credentials, 'audience', '') as string,
+						grant_type: 'client_credentials',
+						client_id: _.get(credentials, 'clientId', '') as string,
+						client_secret: _.get(credentials, 'clientSecret', '') as string,
+						scope: _.get(credentials, 'scope', '') as string,
+					},
+					json: true,
+				};
+
+				const { access_token: accessToken, token_type: tokenType, expires_in: expiresIn, scope } = await requestPromise(tokenRequestOptions);
+
+				credentials.oauthTokenData = { accessToken, tokenType, expiresIn, scope };
+
+				// Find the name of the credentials
+				if (!node.credentials || !node.credentials[credentialsType]) {
+					throw new Error(`The node "${node.name}" does not have credentials of type "${credentialsType}"!`);
+				}
+				const name = node.credentials[credentialsType];
+
+				// Save the refreshed token
+				await additionalData.credentialsHelper.updateCredentials(name, credentialsType, credentials);
+
+				// Make the request again with the new token
+				const newRequestOptions = {
+					...requestOptions,
+					headers: {
+						...requestOptions.headers,
+						'content-type': 'application/json',
+						authorization: `Bearer ${accessToken}`
+					}
+				};
 
 				return this.helpers.request!(newRequestOptions);
 			}
@@ -739,6 +817,9 @@ export function getExecuteFunctions(workflow: Workflow, runExecutionData: IRunEx
 			helpers: {
 				prepareBinaryData,
 				request: requestPromise,
+				requestOAuth2ClientCredentials(this: IAllExecuteFunctions, credentialsType: string, requestOptions: OptionsWithUri | requestPromise.RequestPromiseOptions, oAuth2Options?: IOAuth2Options): Promise<any> { // tslint:disable-line:no-any
+					return requestOAuth2ClientCredentials.call(this, credentialsType, requestOptions, node, additionalData, oAuth2Options);
+				},
 				requestOAuth2(this: IAllExecuteFunctions, credentialsType: string, requestOptions: OptionsWithUri | requestPromise.RequestPromiseOptions, oAuth2Options?: IOAuth2Options): Promise<any> { // tslint:disable-line:no-any
 					return requestOAuth2.call(this, credentialsType, requestOptions, node, additionalData, oAuth2Options);
 				},

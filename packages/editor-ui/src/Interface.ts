@@ -152,6 +152,7 @@ export interface IRestApi {
 	getTimezones(): Promise<IDataObject>;
 	oAuth1CredentialAuthorize(sendData: ICredentialsResponse): Promise<string>;
 	oAuth2CredentialAuthorize(sendData: ICredentialsResponse): Promise<string>;
+	oAuth2ClientCredentialsGetToken(sendData: ICredentialsResponse): Promise<string>;
 	oAuth2Callback(code: string, state: string): Promise<string>;
 }
 

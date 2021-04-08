@@ -169,6 +169,7 @@
       "dist/credentials/NextCloudOAuth2Api.credentials.js",
       "dist/credentials/OAuth1Api.credentials.js",
       "dist/credentials/OAuth2Api.credentials.js",
+      "dist/credentials/OAuth2ClientCredentials.credentials.js",
       "dist/credentials/OpenWeatherMapApi.credentials.js",
       "dist/credentials/OrbitApi.credentials.js",
       "dist/credentials/OuraApi.credentials.js",

@@ -1438,6 +1438,83 @@ class App {
 			res.sendFile(pathResolve(__dirname, '../../templates/oauth-callback.html'));
 		});
 
+		// ----------------------------------------
+		// OAuth2-Token - used in Client-Credentials-Flow
+		// ----------------------------------------
+		this.app.get(`/${this.restEndpoint}/oauth2-credential/token`, async (req: express.Request, res: express.Response) => {
+			if (req.query.id === undefined) {
+				res.status(500).send('Required credential id is missing.');
+				return '';
+			}
+
+			const result = await Db.collections.Credentials!.findOne(req.query.id as string);
+			if (result === undefined) {
+				res.status(404).send('The credential is not known.');
+				return '';
+			}
+
+			let encryptionKey = undefined;
+			encryptionKey = await UserSettings.getEncryptionKey();
+			if (encryptionKey === undefined) {
+				res.status(500).send('No encryption key got found to decrypt the credentials!');
+				return '';
+			}
+
+			// Decrypt the currently saved credentials
+			const workflowCredentials: IWorkflowCredentials = {
+				[result.type as string]: {
+					[result.name as string]: result as ICredentialsEncrypted,
+				},
+			};
+			const mode: WorkflowExecuteMode = 'internal';
+			const credentialsHelper = new CredentialsHelper(workflowCredentials, encryptionKey);
+			const decryptedDataOriginal = credentialsHelper.getDecrypted(result.name, result.type, mode, true);
+			const oauthCredentials = credentialsHelper.applyDefaultsAndOverwrites(decryptedDataOriginal, result.type, mode);
+
+			// await this.externalHooks.run('oauth2.authenticate', [oAuthOptions]);
+
+			try {
+				const requestOptions = {
+					method: 'POST',
+					uri: _.get(oauthCredentials, 'accessTokenUrl', '') as string,
+					headers: {
+						'cache-control': 'no-cache',
+						'content-type': 'application/json'
+					},
+					body: {
+						audience: _.get(oauthCredentials, 'audience', '') as string,
+						grant_type: 'client_credentials',
+						client_id: _.get(oauthCredentials, 'clientId', '') as string,
+						client_secret: _.get(oauthCredentials, 'clientSecret', '') as string,
+						scope: _.get(oauthCredentials, 'scope', '') as string,
+					},
+					json: true,
+				};
+
+				const { access_token: accessToken, token_type: tokenType, expires_in: expiresIn, scope } = await requestPromise(requestOptions);
+				console.log('EXPIRES IN', expiresIn);
+				decryptedDataOriginal.oauthTokenData = { accessToken, tokenType, expiresIn, scope };
+			} catch (error) {
+				const { statusCode = 404 , error: { error_description: errorDescription = 'Unable to get access tokens!' } = {} } = error
+				const errorResponse = new ResponseHelper.ResponseError(errorDescription, undefined, statusCode);
+				delete decryptedDataOriginal.oauthTokenData;
+				return ResponseHelper.sendErrorResponse(res, errorResponse);
+			} finally {
+				// Encrypt the data
+				const credentials = new Credentials(result.name, result.type, result.nodesAccess);
+
+				credentials.setData(decryptedDataOriginal, encryptionKey);
+				const newCredentialsData = credentials.getDataToSave() as unknown as ICredentialsDb;
+
+				// Add special database related data
+				newCredentialsData.updatedAt = this.getCurrentDate();
+
+				// Update the credentials in DB
+				await Db.collections.Credentials!.update(req.query.id as string, newCredentialsData);
+			}
+			res.status(200).send('');
+			return '';
+		});
 
 		// ----------------------------------------
 		// Executions

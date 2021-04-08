@@ -93,6 +93,17 @@ export class HttpRequest implements INodeType {
 					},
 				},
 			},
+			{
+				name: 'oAuth2ClientCredentials',
+				required: true,
+				displayOptions: {
+					show: {
+						authentication: [
+							'oAuth2ClientCredentials',
+						],
+					},
+				},
+			}
 		],
 		properties: [
 			{
@@ -119,6 +130,10 @@ export class HttpRequest implements INodeType {
 					{
 						name: 'OAuth2',
 						value: 'oAuth2',
+					},
+					{
+						name: 'OAuth2 Client Credentials',
+						value: 'oAuth2ClientCredentials',
 					},
 					{
 						name: 'None',
@@ -622,6 +637,7 @@ export class HttpRequest implements INodeType {
 		const httpHeaderAuth = this.getCredentials('httpHeaderAuth');
 		const oAuth1Api = this.getCredentials('oAuth1Api');
 		const oAuth2Api = this.getCredentials('oAuth2Api');
+		const oAuth2ClientCredentials = this.getCredentials('oAuth2ClientCredentials');
 
 		let requestOptions: OptionsWithUri;
 		let setUiParameter: IDataObject;
@@ -868,6 +884,8 @@ export class HttpRequest implements INodeType {
 				requestPromises.push(this.helpers.requestOAuth1.call(this, 'oAuth1Api', requestOptions));
 			} else if (oAuth2Api !== undefined) {
 				requestPromises.push(this.helpers.requestOAuth2.call(this, 'oAuth2Api', requestOptions, { tokenType: 'Bearer' }));
+			} else if (oAuth2ClientCredentials !== undefined) {
+				requestPromises.push(this.helpers.requestOAuth2ClientCredentials.call(this, 'oAuth2ClientCredentials', requestOptions, { tokenType: 'Bearer' }));
 			} else {
 				requestPromises.push(this.helpers.request(requestOptions));
 			}
